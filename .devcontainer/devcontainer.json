@@ -1,0 +1,32 @@
+{
+    "name": "TensorRT Edge-LLM Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "runArgs": [
+        "--gpus",
+        "all",
+        "--name",
+        "trt_edgellm_dev"
+    ],
+    "remoteUser": "qcraft",
+    "containerUser": "qcraft",
+    "updateRemoteUserUID": true,
+    "workspaceFolder": "/workspaces/trt_edgellm_docker",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/trt_edgellm_docker,type=bind,consistency=cached",
+    "postCreateCommand": "bash scripts/setup.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cmake-tools",
+                "ms-python.python",
+                "llvm-vs-code-extensions.vscode-clangd"
+            ],
+            "settings": {
+                "cmake.buildDirectory": "${workspaceFolder}/TensorRT-Edge-LLM/build",
+                "cmake.sourceDirectory": "${workspaceFolder}/TensorRT-Edge-LLM"
+            }
+        }
+    }
+}
