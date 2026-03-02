@@ -14,7 +14,7 @@ cd "${REPO_DIR}"
 git submodule update --init --recursive
 
 echo ">>> Installing Python export pipeline ..."
-pip install --user . -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://pypi.org/simple
+uv pip install --system --break-system-packages . -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://pypi.org/simple
 
 
 CUDA_VER=$(nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+')

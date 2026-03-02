@@ -9,7 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gdb \
         clang-format \
         sudo \
-    && rm -rf /var/lib/apt/lists/*
+        git-lfs \
+    && rm -rf /var/lib/apt/lists/* \
+    && git lfs install
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 RUN groupadd --gid 1001 ${USERNAME} \
     && useradd --uid 1001 --gid 1001 -m ${USERNAME} -s /bin/bash \
