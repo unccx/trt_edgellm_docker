@@ -8,7 +8,12 @@
         "--gpus",
         "all",
         "--name",
-        "trt_edgellm_dev"
+        "trt_edgellm_dev",
+        "--ipc=host",
+        "--ulimit",
+        "memlock=-1",
+        "--ulimit",
+        "stack=67108864"
     ],
     "remoteUser": "qcraft",
     "containerUser": "qcraft",
@@ -24,8 +29,8 @@
                 "llvm-vs-code-extensions.vscode-clangd"
             ],
             "settings": {
-                "cmake.buildDirectory": "${workspaceFolder}/TensorRT-Edge-LLM/build",
-                "cmake.sourceDirectory": "${workspaceFolder}/TensorRT-Edge-LLM"
+                "cmake.buildDirectory": "${workspaceFolder}/3rdparty/TensorRT-Edge-LLM/build",
+                "cmake.sourceDirectory": "${workspaceFolder}/3rdparty/TensorRT-Edge-LLM"
             }
         }
     }

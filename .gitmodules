@@ -1,0 +1,3 @@
+[submodule "3rdparty/TensorRT-Edge-LLM"]
+	path = 3rdparty/TensorRT-Edge-LLM
+	url = https://github.com/NVIDIA/TensorRT-Edge-LLM.git
