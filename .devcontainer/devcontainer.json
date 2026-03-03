@@ -2,13 +2,16 @@
     "name": "TensorRT Edge-LLM Dev",
     "build": {
         "dockerfile": "Dockerfile",
-        "context": ".."
+        "context": "..",
+        "args": {
+            "BASE_IMAGE": "swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/nvcr.io/nvidia/pytorch:25.12-py3",
+            "USER_UID": "${localEnv:UID}",
+            "USER_GID": "${localEnv:GID}"
+        }
     },
     "runArgs": [
         "--gpus",
         "all",
-        "--name",
-        "trt_edgellm_dev",
         "--ipc=host",
         "--ulimit",
         "memlock=-1",
@@ -17,10 +20,19 @@
     ],
     "remoteUser": "qcraft",
     "containerUser": "qcraft",
-    "updateRemoteUserUID": true,
+    "updateRemoteUserUID": false,
     "workspaceFolder": "/workspaces/trt_edgellm_docker",
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/trt_edgellm_docker,type=bind,consistency=cached",
-    "postCreateCommand": "bash scripts/setup.sh",
+    "mounts": [
+        "source=${localEnv:HOME}/.cache/pip,target=/home/qcraft/.cache/pip,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.cache/uv,target=/home/qcraft/.cache/uv,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.ccache,target=/home/qcraft/.ccache,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.vscode-server,target=/home/qcraft/.vscode-server,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.cursor-server,target=/home/qcraft/.cursor-server,type=bind,consistency=cached"
+    ],
+    "initializeCommand": "bash .devcontainer/ensure_host_mounts.sh",
+    "onCreateCommand": "bash .devcontainer/on_create.sh",
+    "postStartCommand": "bash .devcontainer/devcontainer_healthcheck.sh",
     "customizations": {
         "vscode": {
             "extensions": [
@@ -29,8 +41,11 @@
                 "llvm-vs-code-extensions.vscode-clangd"
             ],
             "settings": {
-                "cmake.buildDirectory": "${workspaceFolder}/3rdparty/TensorRT-Edge-LLM/build",
-                "cmake.sourceDirectory": "${workspaceFolder}/3rdparty/TensorRT-Edge-LLM"
+                "cmake.buildDirectory": "${workspaceFolder}/build",
+                "cmake.sourceDirectory": "${workspaceFolder}",
+                "cmake.configureOnOpen": true,
+                "python.defaultInterpreterPath": "${workspaceFolder}/3rdparty/TensorRT-Edge-LLM/.venv/bin/python",
+                "clangd.arguments": []
             }
         }
     }

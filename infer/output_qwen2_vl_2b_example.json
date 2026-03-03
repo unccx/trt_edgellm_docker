@@ -1,0 +1,10 @@
+{
+    "input_file": "/workspaces/trt_edgellm_docker/infer/input_qwen2_vl_2b_example.json",
+    "responses": [
+        {
+            "batch_idx": 0,
+            "output_text": "在一片宁静的海滩上，一位年轻女子和她的拉布拉多犬正在进行一场友谊的庆祝。她们坐在柔软的沙滩上，女子穿着格子衬衫，与她的宠物共享着一个充满爱意的时刻。拉布拉多犬穿着色彩斑斓的项圈，它抬起前爪，仿佛在向她的主人展示一种无声的友谊。她们的笑声回荡在空气中，与海浪的轻柔拍打声交织在一起，构成了一幅和谐的画面。",
+            "request_idx": 0
+        }
+    ]
+}

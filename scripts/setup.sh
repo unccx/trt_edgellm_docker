@@ -10,83 +10,129 @@ set -euo pipefail
 
 WORKSPACE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_DIR="${WORKSPACE_DIR}/3rdparty/TensorRT-Edge-LLM"
+SETUP_STAMP="${REPO_DIR}/.setup_done"
+FORCE_SETUP="${FORCE_SETUP:-0}"
 
-if [ ! -d "${REPO_DIR}" ]; then
-    echo ">>> Initializing submodule 3rdparty/TensorRT-Edge-LLM ..."
-    cd "${WORKSPACE_DIR}"
-    git submodule update --init --recursive
-fi
-cd "${REPO_DIR}"
-echo ">>> Updating submodules (TensorRT-Edge-LLM internal) ..."
-git submodule update --init --recursive
+log() {
+    echo ">>> $*"
+}
 
-# NGC 容器预装了 NVIDIA 自编译的 PyTorch（版本号形如 2.10.0a0+xxx），
-# 而上游 TensorRT-Edge-LLM 的 requirements.txt / pyproject.toml 可能要求
-# 不同的 torch 版本（如 torch~=2.9.1）。
-# 下面的逻辑检测容器中已安装的 torch 是否满足上游约束，
-# 如果不满足则自动放宽约束以复用容器中的 torch，避免耗时的重新安装。
-echo ">>> Checking container torch version ..."
-if python3 -c "import torch" 2>/dev/null; then
-    # 提取不含 local identifier（+xxx）的版本号，如 "2.10.0a0"
-    CONTAINER_TORCH=$(python3 -c "import torch; print(torch.__version__.split('+')[0])")
-    echo "    Container torch: ${CONTAINER_TORCH}"
-
-    # 用 packaging.specifiers 解析 requirements.txt 中的 torch 版本约束，
-    # 判断容器中的 torch 版本（含预发布标记 a0）是否在约束范围内
-    if ! python3 -c "
-from packaging.specifiers import SpecifierSet
-import re, sys
-with open('${REPO_DIR}/requirements.txt') as f:
-    for line in f:
-        m = re.match(r'^torch([><=~!].+)', line.strip())
-        if m:
-            spec = SpecifierSet(m.group(1), prereleases=True)
-            sys.exit(0 if '${CONTAINER_TORCH}' in spec else 1)
-sys.exit(0)
-"; then
-        # 不兼容：生成新约束 torch>=当前版本,<下一个 minor 版本
-        # 例如容器 torch 为 2.10.0a0 -> torch>=2.10.0a0,<2.11.0
-        MAJOR_MINOR=$(echo "${CONTAINER_TORCH}" | grep -oP '^\d+\.\d+')
-        MINOR=${MAJOR_MINOR#*.}
-        NEXT_MINOR=$((MINOR + 1))
-        NEW_CONSTRAINT="torch>=${CONTAINER_TORCH},<2.${NEXT_MINOR}.0"
-        echo "    Container torch ${CONTAINER_TORCH} not compatible, patching -> ${NEW_CONSTRAINT}"
-        sed -i "s|\"torch[^\"]*\"|\"${NEW_CONSTRAINT}\"|" "${REPO_DIR}/pyproject.toml"
-        sed -i "s|^torch[><=~!].*|${NEW_CONSTRAINT}|" "${REPO_DIR}/requirements.txt"
-    else
-        echo "    Container torch ${CONTAINER_TORCH} is compatible, no patching needed"
-    fi
-fi
-
-echo ">>> Installing TensorRT-Edge-LLM (Python export pipeline) ..."
-cd "${REPO_DIR}"
-python3 -m pip install --no-cache-dir -e . \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://pypi.org/simple
-
-
-CUDA_VER=$(nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+')
-echo ">>> Detected CUDA version: ${CUDA_VER}"
-
-TRT_PACKAGE_DIR=""
-for candidate in /usr /usr/local/tensorrt; do
-    if [ -f "${candidate}/include/NvInfer.h" ] || \
-       [ -f "${candidate}/include/x86_64-linux-gnu/NvInfer.h" ]; then
-        TRT_PACKAGE_DIR="${candidate}"
-        break
-    fi
-done
-if [ -z "${TRT_PACKAGE_DIR}" ]; then
-    echo "ERROR: TensorRT not found. Set TRT_PACKAGE_DIR manually."
+die() {
+    echo "ERROR: $*" >&2
     exit 1
-fi
-echo ">>> Detected TensorRT at: ${TRT_PACKAGE_DIR}"
+}
 
-echo ">>> Configuring CMake build (x86 GPU) ..."
-mkdir -p build && cd build
-cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}" \
-    -DCUDA_VERSION="${CUDA_VER}"
+require_cmd() {
+    local cmd="$1"
+    if ! command -v "${cmd}" >/dev/null 2>&1; then
+        die "'${cmd}' not found in PATH."
+    fi
+}
 
-echo ">>> Setup complete. To build C++ runtime:"
-echo "    cd ${REPO_DIR}/build && make -j\$(nproc)"
+ensure_commands() {
+    local cmds=(git python3 uv cmake nvcc)
+    local cmd
+    for cmd in "${cmds[@]}"; do
+        require_cmd "${cmd}"
+    done
+}
+
+should_skip_setup() {
+    [ "${FORCE_SETUP}" != "1" ] && [ -f "${SETUP_STAMP}" ]
+}
+
+sync_submodules() {
+    if [ ! -d "${REPO_DIR}/.git" ]; then
+        log "Initializing submodule 3rdparty/TensorRT-Edge-LLM ..."
+        cd "${WORKSPACE_DIR}"
+    else
+        log "Updating submodules (TensorRT-Edge-LLM internal) ..."
+        cd "${REPO_DIR}"
+    fi
+    git submodule update --init --recursive --depth 1
+}
+
+detect_cuda_version() {
+    local cuda_ver
+    cuda_ver="$(nvcc --version | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')"
+    if [ -z "${cuda_ver}" ]; then
+        die "Failed to parse CUDA version from 'nvcc --version'."
+    fi
+    echo "${cuda_ver}"
+}
+
+detect_trt_package_dir() {
+    local trt_package_dir="${TRT_PACKAGE_DIR:-}"
+    local candidate
+    if [ -z "${trt_package_dir}" ]; then
+        for candidate in /usr /usr/local/tensorrt; do
+            if [ -f "${candidate}/include/NvInfer.h" ] || \
+               [ -f "${candidate}/include/x86_64-linux-gnu/NvInfer.h" ]; then
+                trt_package_dir="${candidate}"
+                break
+            fi
+        done
+    fi
+    if [ -z "${trt_package_dir}" ]; then
+        die "TensorRT not found. Set TRT_PACKAGE_DIR manually."
+    fi
+    echo "${trt_package_dir}"
+}
+
+setup_python_env() {
+    local pip_index_url="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+    local pip_extra_index_url="${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple}"
+    local venv_dir="${REPO_DIR}/.venv"
+
+    log "Installing TensorRT-Edge-LLM (Python export pipeline) ..."
+    log "Using PIP_INDEX_URL=${pip_index_url}"
+    log "Using PIP_EXTRA_INDEX_URL=${pip_extra_index_url}"
+    log "Creating virtual environment at ${venv_dir} (with system-site-packages)..."
+
+    uv venv --system-site-packages "${venv_dir}"
+    uv pip install --python "${venv_dir}/bin/python" -e . \
+        --index-url "${pip_index_url}" --extra-index-url "${pip_extra_index_url}"
+}
+
+configure_cmake() {
+    local cuda_ver="$1"
+    local trt_package_dir="$2"
+    log "Configuring CMake build (x86 GPU) ..."
+    cmake -S "${REPO_DIR}" -B "${REPO_DIR}/build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DTRT_PACKAGE_DIR="${trt_package_dir}" \
+        -DCUDA_VERSION="${cuda_ver}"
+}
+
+main() {
+    ensure_commands
+
+    if should_skip_setup; then
+        log "Setup already completed at ${SETUP_STAMP}; skipping heavy initialization."
+        log "Re-run with FORCE_SETUP=1 bash scripts/setup.sh to force refresh."
+        return 0
+    fi
+
+    sync_submodules
+    cd "${REPO_DIR}"
+
+    setup_python_env
+
+    local cuda_ver
+    cuda_ver="$(detect_cuda_version)"
+    log "Detected CUDA version: ${cuda_ver}"
+
+    local trt_package_dir
+    trt_package_dir="$(detect_trt_package_dir)"
+    log "Detected TensorRT at: ${trt_package_dir}"
+
+    configure_cmake "${cuda_ver}" "${trt_package_dir}"
+
+    log "Setup complete. To build C++ runtime:"
+    echo "    cd ${REPO_DIR}/build && make -j\$(nproc)"
+    log "To use Python env:"
+    echo "    source ${REPO_DIR}/.venv/bin/activate"
+    touch "${SETUP_STAMP}"
+}
+
+main "$@"
